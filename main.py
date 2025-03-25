@@ -43,13 +43,14 @@ def categorize_urls(urls, token=None):
             videos.append((name, url))
         elif "d1d34p8vz63oiq" in url or "sec1.pw.live" or "/master.mpd"in url:
             vid_id = url.split("/")[-2]
-            if token:
-                new_url = f"https://anonymouspwplayer-b99f57957198.herokuapp.com/pw?url={url}?token={token}"
-            else:
-                new_url = f"https://player.muftukmall.site/?id={vid_id}"
+            #if token:
+                #new_url = f"https://anonymouspwplayer-b99f57957198.herokuapp.com/pw?url={url}?token={token}"
+            #else:
+            new_url = f"https://player.muftukmall.site/?id={vid_id}"
             videos.append((name, new_url))
         elif 'amazonaws.com' in url:
-            new_url =  f"https://master-api-v3.vercel.app/adda-mp4-m3u8?url={url}&quality=480&token={raw_text4}"
+            if token:
+                new_url =  f"https://master-api-v3.vercel.app/adda-mp4-m3u8?url={url}&quality=480&token={token}"
             videos.append((name, new_url))
         if ".zip" in url:
             url = f"https://video.pablocoder.eu.org/appx-zip?url={url}"
