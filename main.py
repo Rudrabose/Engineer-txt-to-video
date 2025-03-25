@@ -48,6 +48,12 @@ def categorize_urls(urls, token=None):
             else:
                 new_url = f"https://player.muftukmall.site/?id={vid_id}"
             videos.append((name, new_url))
+        elif 'amazonaws.com' in url:
+            new_url =  f"https://master-api-v3.vercel.app/adda-mp4-m3u8?url={url}&quality=480&token={raw_text4}"
+            videos.append((name, new_url))
+        if ".zip" in url:
+            url = f"https://video.pablocoder.eu.org/appx-zip?url={url}"
+            videos.append((name, new_url))
         elif "youtube.com/embed" in url or "youtu.be" in url or "youtube.com/watch" in url:
             videos.append((name, url))  # Keep YouTube URLs unchanged
         elif (
