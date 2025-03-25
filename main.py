@@ -1,20 +1,22 @@
 import os
-import sys
 import requests
-from bs4 import BeautifulSoup
 from pyrogram import Client, filters
-from pyrogram.types import Message
+from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from datetime import datetime
 
 # Replace with your API ID, API Hash, and Bot Token
 API_ID = "21705536"
 API_HASH = "c5bb241f6e3ecf33fe68a444e288de2d"
-BOT_TOKEN = "7480080731:AAGGgo9o_t9pmWsgT8lVO3PJ4OjPhLg2Aoo"
+BOT_TOKEN = "7480080731:AAHJ3jgh7npoAJSZ0tiB2n0bqSY0sp5E4gk"
 
 # Telegram channel where files will be forwarded
 CHANNEL_USERNAME = "engineerbabuxtfiles"  # Replace with your channel username
 
 # Initialize Pyrogram Client
 app = Client("my_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+
+# Dictionary to store user states and data
+user_data = {}
 
 # Function to extract names and URLs from the text file
 def extract_names_and_urls(file_content):
@@ -27,7 +29,7 @@ def extract_names_and_urls(file_content):
     return data
 
 # Function to categorize URLs
-def categorize_urls(urls):
+def categorize_urls(urls, token=None):
     videos = []
     pdfs = []
     others = []
@@ -39,15 +41,29 @@ def categorize_urls(urls):
             videos.append((name, new_url))
         elif "dragoapi.vercel" in url:
             videos.append((name, url))
-        elif "/master.mpd" in url:
+        elif "d1d34p8vz63oiq" in url or "sec1.pw.live" or "/master.mpd"in url:
             vid_id = url.split("/")[-2]
-            new_url = f"https://player.muftukmall.site/?id={vid_id}"
+            if token:
+                new_url = f"https://anonymouspwplayer-b99f57957198.herokuapp.com/pw?url={url}?token={token}"
+            else:
+                new_url = f"https://player.muftukmall.site/?id={vid_id}"
             videos.append((name, new_url))
         elif "youtube.com/embed" in url or "youtu.be" in url or "youtube.com/watch" in url:
-            yt_id = url.split("v=")[-1].split("&")[0] if "v=" in url else url.split("/")[-1]
-            new_url = f"https://www.youtube.com/watch?v={yt_id}"
-            videos.append((name, new_url))
-        elif ".m3u8" in url:
+            videos.append((name, url))  # Keep YouTube URLs unchanged
+        elif (
+            ".m3u8" in url
+            or ".mp4" in url
+            or ".mkv" in url
+            or ".webm" in url
+            or ".MP4" in url
+            or ".AVI" in url
+            or ".MOV" in url
+            or ".WMV" in url
+            or ".MKV" in url
+            or ".FLV" in url
+            or ".MPEG" in url
+            or ".mpd" in url
+        ):
             videos.append((name, url))
         elif "pdf*" in url:
             new_url = f"https://dragoapi.vercel.app/pdf/{url}"
@@ -58,6 +74,31 @@ def categorize_urls(urls):
             others.append((name, url))
 
     return videos, pdfs, others
+
+# Function to get MIME type based on file extension
+def get_mime_type(url):
+    if ".m3u8" in url:
+        return "application/x-mpegURL"
+    elif ".mp4" in url:
+        return "video/mp4"
+    elif ".mkv" in url:
+        return "video/x-matroska"
+    elif ".webm" in url:
+        return "video/webm"
+    elif ".avi" in url:
+        return "video/x-msvideo"
+    elif ".mov" in url:
+        return "video/quicktime"
+    elif ".wmv" in url:
+        return "video/x-ms-wmv"
+    elif ".flv" in url:
+        return "video/x-flv"
+    elif ".mpeg" in url:
+        return "video/mpeg"
+    elif ".mpd" in url:
+        return "application/dash+xml"
+    else:
+        return "video/mp4"  # Default to mp4 if format is unknown
 
 # Function to generate HTML file with Video.js player, YouTube player, and download feature
 def generate_html(file_name, videos, pdfs, others):
@@ -100,13 +141,14 @@ def generate_html(file_name, videos, pdfs, others):
         .download-button {{ margin-top: 10px; text-align: center; }}
         .download-button a {{ background: #007bff; color: white; padding: 10px 20px; border-radius: 5px; text-decoration: none; font-weight: bold; }}
         .download-button a:hover {{ background: #0056b3; }}
+        .datetime {{ margin-top: 10px; font-size: 18px; font-weight: bold; color: #2F4F4F; }}
     </style>
 </head>
 <body>
     <div class="header">{file_name_without_extension}</div>
-    <div class="subheading">📥 𝐄𝐱𝐭𝐫𝐚𝐜𝐭𝐞𝐝 𝐁𝐲 : <a href="https://t.me/Engineers_Babu" target="_blank">𝕰𝖓𝖌𝖎𝖓𝖊𝖊𝖗𝖘 𝕭𝖆𝖇𝖚™</a></div>
-    <br>
-    <p>🔹𝐔𝐬𝐞 𝐓𝐡𝐢𝐬 𝐁𝐨𝐭 𝐟𝐨𝐫 𝐓𝐗𝐓 𝐭𝐨 𝐇𝐓𝐌𝐋 𝐟𝐢𝐥𝐞 𝐄𝐱𝐭𝐫𝐚𝐜𝐭𝐢𝐨𝐧 : <a href="https://t.me/htmldeveloperbot" target="_blank"> @𝐡𝐭𝐦𝐥𝐝𝐞𝐯𝐞𝐥𝐨𝐩𝐞𝐫𝐛𝐨𝐭 🚀</a></p>
+    <div class="subheading">📥 𝐄𝐱𝐭𝐫𝐚𝐜𝐭𝐞𝐝 𝐁𝐲 : <a href="https://t.me/Engineers_Babu" target="_blank">𝕰𝖓𝖌𝖎𝖓𝖊𝖊𝖗𝖘 𝕭𝖆𝖇𝖚™</a></div><br>
+    <div class="datetime" id="datetime">📅 {datetime.now().strftime('%A %d %B, %Y | ⏰ %I:%M:%S %p')}</div><br>
+    <p>🔹𝐔𝐬𝐞 𝐓𝐡𝐢𝐬 𝐁𝐨𝐭 𝐟𝐨𝐫 𝐓𝐗𝐓 𝐭𝐨 𝐇𝐓𝐌𝐋 𝐟𝐢𝐥𝐞 𝐄𝐱𝐭𝐫𝐚𝐜𝐭𝐢𝐨𝐧 : <a href="https://t.me/htmldeveloperbot" target="_blank"> @𝐡𝐭𝐦𝐥𝐝𝐞𝐯𝐞𝐥𝐨𝐩𝐞𝐫𝐛𝐨𝐭 </a></p>
 
     <div class="search-bar">
         <input type="text" id="searchInput" placeholder="Search for videos, PDFs, or other resources..." oninput="filterContent()">
@@ -129,7 +171,7 @@ def generate_html(file_name, videos, pdfs, others):
 
     <div id="youtube-player">
         <div id="player"></div>
-        <div style="text-align: center; margin-top: 10px; font-weight: bold; color: #007bff;">YouTube Player</div>
+        <div style="text-align: center; margin-top: 10px; font-weight: bold; color: #007bff;">Engineer Babu Player</div>
     </div>
 
     <div class="container">
@@ -188,10 +230,24 @@ def generate_html(file_name, videos, pdfs, others):
         }}
 
         function playVideo(url) {{
-            if (url.includes('.m3u8')) {{
+            if (
+                url.includes('.m3u8') ||
+                url.includes('.mp4') ||
+                url.includes('.mkv') ||
+                url.includes('.webm') ||
+                url.includes('.MP4') ||
+                url.includes('.AVI') ||
+                url.includes('.MOV') ||
+                url.includes('.WMV') ||
+                url.includes('.MKV') ||
+                url.includes('.FLV') ||
+                url.includes('.MPEG') ||
+                url.includes('.mpd')
+            ) {{
                 document.getElementById('video-player').style.display = 'block';
                 document.getElementById('youtube-player').style.display = 'none';
-                player.src({{ src: url, type: 'application/x-mpegURL' }});
+                const mimeType = getMimeType(url);
+                player.src({{ src: url, type: mimeType }});
                 player.play().catch(() => {{
                     window.open(url, '_blank');
                 }});
@@ -199,17 +255,36 @@ def generate_html(file_name, videos, pdfs, others):
             }} else if (url.includes('youtube.com') || url.includes('youtu.be')) {{
                 document.getElementById('video-player').style.display = 'none';
                 document.getElementById('youtube-player').style.display = 'block';
-                const videoId = extractYouTubeId(url);
-                youtubePlayer.loadVideoById(videoId);
+                youtubePlayer.loadVideoByUrl(url);  // Directly load the YouTube URL
             }} else {{
                 window.open(url, '_blank');
             }}
         }}
 
-        function extractYouTubeId(url) {{
-            const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
-            const match = url.match(regExp);
-            return (match && match[2].length === 11) ? match[2] : null;
+        function getMimeType(url) {{
+            if (url.includes('.m3u8')) {{
+                return 'application/x-mpegURL';
+            }} else if (url.includes('.mp4')) {{
+                return 'video/mp4';
+            }} else if (url.includes('.mkv')) {{
+                return 'video/x-matroska';
+            }} else if (url.includes('.webm')) {{
+                return 'video/webm';
+            }} else if (url.includes('.avi')) {{
+                return 'video/x-msvideo';
+            }} else if (url.includes('.mov')) {{
+                return 'video/quicktime';
+            }} else if (url.includes('.wmv')) {{
+                return 'video/x-ms-wmv';
+            }} else if (url.includes('.flv')) {{
+                return 'video/x-flv';
+            }} else if (url.includes('.mpeg')) {{
+                return 'video/mpeg';
+            }} else if (url.includes('.mpd')) {{
+                return 'application/dash+xml';
+            }} else {{
+                return 'video/mp4';  // Default to mp4 if format is unknown
+            }}
         }}
 
         function showContent(tabName) {{
@@ -256,8 +331,16 @@ def generate_html(file_name, videos, pdfs, others):
             }}
         }}
 
+        function updateDateTime() {{
+            const now = new Date();
+            const options = {{ weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }};
+            const formattedDateTime = now.toLocaleDateString('en-US', options);
+            document.getElementById('datetime').innerText = `📅 ${{formattedDateTime}}`;
+        }}
+
         document.addEventListener('DOMContentLoaded', () => {{
             showContent('videos');
+            setInterval(updateDateTime, 1000);
         }});
     </script>
 </body>
@@ -265,8 +348,14 @@ def generate_html(file_name, videos, pdfs, others):
     """
     return html_template
 
-# Function to handle file processing
-async def process_file(client: Client, message: Message):
+# Command handler for /start
+@app.on_message(filters.command("start"))
+async def start(client: Client, message: Message):
+    await message.reply_text("𝐖𝐞𝐥𝐜𝐨𝐦𝐞! 𝐏𝐥𝐞𝐚𝐬𝐞 𝐮𝐩𝐥𝐨𝐚𝐝 𝐚 .𝐭𝐱𝐭 𝐟𝐢𝐥𝐞 𝐜𝐨𝐧𝐭𝐚𝐢𝐧𝐢𝐧𝐠 𝐔𝐑𝐋𝐬.")
+
+# Message handler for file uploads
+@app.on_message(filters.document)
+async def handle_file(client: Client, message: Message):
     # Check if the file is a .txt file
     if not message.document.file_name.endswith(".txt"):
         await message.reply_text("Please upload a .txt file.")
@@ -276,79 +365,140 @@ async def process_file(client: Client, message: Message):
     file_path = await message.download()
     file_name = message.document.file_name
 
-    # Read the file content
-    with open(file_path, "r") as f:
-        file_content = f.read()
+    # Store file information in user_data
+    user_id = message.from_user.id
+    user_data[user_id] = {
+        "file_path": file_path,
+        "file_name": file_name,
+        "waiting_for_token": True
+    }
 
-    # Extract names and URLs
-    urls = extract_names_and_urls(file_content)
+    # Ask for token with inline keyboard
+    keyboard = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("No Token", callback_data="no_token")]
+        ]
+    )
+    await message.reply_text(
+        "🔑 Do you want to add a token for Adda/PW player? If yes, please send the token now. If no, click 'No Token' button.",
+        reply_markup=keyboard
+    )
 
-    # Categorize URLs
-    videos, pdfs, others = categorize_urls(urls)
+# Handler for token response
+@app.on_message(filters.text & ~filters.command("start"))
+async def handle_token_response(client: Client, message: Message):
+    user_id = message.from_user.id
+    if user_id in user_data and user_data[user_id].get("waiting_for_token"):
+        token = message.text.strip().lower()
+        
+        if token == "no":
+            token = None
+            await message.reply_text("Proceeding without token...")
+        else:
+            await message.reply_text(f"Token set to: {token}")
+        
+        # Process the file with the token
+        file_path = user_data[user_id]["file_path"]
+        file_name = user_data[user_id]["file_name"]
+        
+        # Read the file content
+        with open(file_path, "r") as f:
+            file_content = f.read()
 
-    # Generate HTML
-    html_content = generate_html(file_name, videos, pdfs, others)
-    html_file_path = file_path.replace(".txt", ".html")
-    with open(html_file_path, "w") as f:
-        f.write(html_content)
+        # Extract names and URLs
+        urls = extract_names_and_urls(file_content)
 
-    # Send the HTML file to the user
-    await message.reply_document(document=html_file_path, caption="✅ 𝐒𝐮𝐜𝐜𝐞𝐬𝐬𝐟𝐮𝐥𝐥𝐲 𝐃𝐨𝐧𝐞!\n\n📥 𝐄𝐱𝐭𝐫𝐚𝐜𝐭𝐞𝐝 𝐁𝐲 : 𝕰𝖓𝖌𝖎𝖓𝖊𝖊𝖗𝖘 𝕭𝖆𝖇𝖚™")
+        # Categorize URLs with token
+        videos, pdfs, others = categorize_urls(urls, token)
 
-    # Forward the .txt file to the channel
-    await client.send_document(chat_id=CHANNEL_USERNAME, document=file_path)
+        # Generate HTML
+        html_content = generate_html(file_name, videos, pdfs, others)
+        html_file_path = file_path.replace(".txt", ".html")
+        with open(html_file_path, "w") as f:
+            f.write(html_content)
 
-    # Clean up files
-    os.remove(file_path)
-    os.remove(html_file_path)
+        # Calculate totals
+        total_videos = len(videos)
+        total_pdfs = len(pdfs)
+        total_others = len(others)
 
-# Function to extract names and URLs from an HTML file
-def extract_name_urls(html_file):
-    """
-    Extracts names and their corresponding URLs from an HTML file.
+        # Get the user's username or fallback to their first name
+        user_identifier = message.from_user.username if message.from_user.username else message.from_user.first_name
 
-    :param html_file: Path to the HTML file.
-    :return: A list of tuples containing (name, url).
-    """
-    with open(html_file, 'r', encoding='utf-8') as file:
-        soup = BeautifulSoup(file, 'html.parser')
+        # Send the HTML file to the user
+        await message.reply_document(
+            document=html_file_path,
+            caption=f"🎞️ 𝐕𝐢𝐝𝐞𝐨𝐬 : {total_videos}, 📚 𝐏𝐝𝐟𝐬 : {total_pdfs}, 💾 𝐎𝐭𝐡𝐞𝐫𝐬 : {total_others}\n\n✅ 𝐒𝐮𝐜𝐜𝐞𝐬𝐬𝐟𝐮𝐥𝐥𝐲 𝐃𝐨𝐧𝐞!\n\n📥 𝐄𝐱𝐭𝐫𝐚𝐜𝐭𝐞𝐝 𝐁𝐲 : 𝕰𝖓𝖌𝖎𝖓𝖊𝖊𝖗𝖘 𝕭𝖆𝖇𝖚™"
+        )
 
-    # Assuming names are within <a> tags and URLs are in the 'href' attribute
-    name_urls = []
-    for a_tag in soup.find_all('a', href=True):
-        name = a_tag.text.strip()
-        url = a_tag['href']
-        if name and url:
-            name_urls.append((name, url))
+        # Forward the .txt file to the channel
+        await client.send_document(
+            chat_id=CHANNEL_USERNAME,
+            document=file_path,
+            caption=f"📥 User: @{user_identifier} "
+        )
 
-    return name_urls
+        # Clean up files
+        os.remove(file_path)
+        os.remove(html_file_path)
+        
+        # Remove user data
+        del user_data[user_id]
 
-# Function to write names and URLs to a text file
-def write_name_urls_to_txt(name_urls, output_file):
-    """
-    Writes the extracted names and URLs to a text file in the format 'name : url'.
+# Callback query handler for "No Token" button
+@app.on_callback_query(filters.regex("^no_token$"))
+async def no_token_callback(client: Client, callback_query):
+    user_id = callback_query.from_user.id
+    if user_id in user_data and user_data[user_id].get("waiting_for_token"):
+        await callback_query.answer("Processing without token...")
+        
+        # Process the file without token
+        file_path = user_data[user_id]["file_path"]
+        file_name = user_data[user_id]["file_name"]
+        
+        # Read the file content
+        with open(file_path, "r") as f:
+            file_content = f.read()
 
-    :param name_urls: List of tuples containing (name, url).
-    :param output_file: Path to the output text file.
-    """
-    with open(output_file, 'w', encoding='utf-8') as file:
-        for name, url in name_urls:
-            file.write(f"{name} : {url}\n")
+        # Extract names and URLs
+        urls = extract_names_and_urls(file_content)
 
-# Command handler for /start
-@app.on_message(filters.command("start"))
-async def start(client: Client, message: Message):
-    await message.reply_text("𝐖𝐞𝐥𝐜𝐨𝐦𝐞! 𝐔𝐬𝐞 /𝐭𝐱𝐭 𝐭𝐨 𝐮𝐩𝐥𝐨𝐚𝐝 𝐚 .𝐭𝐱𝐭 𝐟𝐢𝐥𝐞 𝐜𝐨𝐧𝐭𝐚𝐢𝐧𝐢𝐧𝐠 𝐔𝐑𝐋𝐬.")
+        # Categorize URLs without token
+        videos, pdfs, others = categorize_urls(urls)
 
-# Command handler for /txt
-@app.on_message(filters.command("txt"))
-async def txt_command(client: Client, message: Message):
-    await message.reply_text("Please upload a .txt file containing URLs.")
+        # Generate HTML
+        html_content = generate_html(file_name, videos, pdfs, others)
+        html_file_path = file_path.replace(".txt", ".html")
+        with open(html_file_path, "w") as f:
+            f.write(html_content)
 
-# Message handler for file uploads
-@app.on_message(filters.document)
-async def handle_file(client: Client, message: Message):
-    await process_file(client, message)
+        # Calculate totals
+        total_videos = len(videos)
+        total_pdfs = len(pdfs)
+        total_others = len(others)
+
+        # Get the user's username or fallback to their first name
+        user_identifier = callback_query.from_user.username if callback_query.from_user.username else callback_query.from_user.first_name
+
+        # Send the HTML file to the user
+        await callback_query.message.reply_document(
+            document=html_file_path,
+            caption=f"🎞️ 𝐕𝐢𝐝𝐞𝐨𝐬 : {total_videos}, 📚 𝐏𝐝𝐟𝐬 : {total_pdfs}, 💾 𝐎𝐭𝐡𝐞𝐫𝐬 : {total_others}\n\n✅ 𝐒𝐮𝐜𝐜𝐞𝐬𝐬𝐟𝐮𝐥𝐥𝐲 𝐃𝐨𝐧𝐞!\n\n📥 𝐄𝐱𝐭𝐫𝐚𝐜𝐭𝐞𝐝 𝐁𝐲 : 𝕰𝖓𝖌𝖎𝖓𝖊𝖊𝖗𝖘 𝕭𝖆𝖇𝖚™"
+        )
+
+        # Forward the .txt file to the channel
+        await client.send_document(
+            chat_id=CHANNEL_USERNAME,
+            document=file_path,
+            caption=f"📥 User: @{user_identifier} "
+        )
+
+        # Clean up files
+        os.remove(file_path)
+        os.remove(html_file_path)
+        
+        # Remove user data
+        del user_data[user_id]
 
 # Run the bot
 if __name__ == "__main__":
