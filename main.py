@@ -54,6 +54,59 @@ async def web_server():
     web_app.add_routes(routes)
     return web_app
 
+async def start_bot():
+    await bot.start()
+    print("Bot is up and running")
+
+async def stop_bot():
+    await bot.stop()
+
+async def main():
+    if WEBHOOK:
+        # Start the web server
+        app_runner = web.AppRunner(await web_server())
+        await app_runner.setup()
+        site = web.TCPSite(app_runner, "0.0.0.0", PORT)
+        await site.start()
+        print(f"Web server started on port {PORT}")
+
+    # Start the bot
+    await start_bot()
+
+    # Keep the program running
+    try:
+        while True:
+            await bot.polling()  # Run forever, or until interrupted
+    except (KeyboardInterrupt, SystemExit):
+        await stop_bot()
+    
+
+async def start_bot():
+    await bot.start()
+    print("Bot is up and running")
+
+async def stop_bot():
+    await bot.stop()
+
+async def main():
+    if WEBHOOK:
+        # Start the web server
+        app_runner = web.AppRunner(await web_server())
+        await app_runner.setup()
+        site = web.TCPSite(app_runner, "0.0.0.0", PORT)
+        await site.start()
+        print(f"Web server started on port {PORT}")
+
+    # Start the bot
+    await start_bot()
+
+    # Keep the program running
+    try:
+        while True:
+            await asyncio.sleep(3600)  # Run forever, or until interrupted
+    except (KeyboardInterrupt, SystemExit):
+        await stop_bot()
+
 async def add_watermark(input_video, output_video, watermark_text="ENGINEER'S BABU"):
     """
     Add watermark text to video using FFmpeg
@@ -82,28 +135,6 @@ async def add_watermark(input_video, output_video, watermark_text="ENGINEER'S BA
     
     await process.communicate()
     return output_video
-
-async def start_bot():
-    await bot.start()
-    print("Bot is up and running")
-
-async def stop_bot():
-    await bot.stop()
-
-async def main():
-    if WEBHOOK:
-        app_runner = web.AppRunner(await web_server())
-        await app_runner.setup()
-        site = web.TCPSite(app_runner, "0.0.0.0", PORT)
-        await site.start()
-        print(f"Web server started on port {PORT}")
-
-    await start_bot()
-    try:
-        while True:
-            await asyncio.sleep(3600)
-    except (KeyboardInterrupt, SystemExit):
-        await stop_bot()
         
 class Data:
     START = (
