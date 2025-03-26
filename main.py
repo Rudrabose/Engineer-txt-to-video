@@ -1,513 +1,399 @@
 import os
+import re
+import sys
+import json
+import time
+import asyncio
 import requests
+import subprocess
+import urllib.parse
+import yt_dlp
+import cloudscraper
+import m3u8
+import core as helper
+from utils import progress_bar
+from vars import API_ID, API_HASH, BOT_TOKEN
+from aiohttp import ClientSession
+from pyromod import listen
+from subprocess import getstatusoutput
+from pytube import YouTube
+from aiohttp import web
+import yt_dlp
 from pyrogram import Client, filters
-from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
-from datetime import datetime
+from pyrogram.types import Message
+from pyrogram.errors import FloodWait
+from pyrogram.errors.exceptions.bad_request_400 import StickerEmojiInvalid
+from pyrogram.types.messages_and_media import message
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-# Replace with your API ID, API Hash, and Bot Token
-API_ID = "21705536"
-API_HASH = "c5bb241f6e3ecf33fe68a444e288de2d"
-BOT_TOKEN = "7480080731:AAHJ3jgh7npoAJSZ0tiB2n0bqSY0sp5E4gk"
+# Initialize the bot
+bot = Client(
+    "bot",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    bot_token=BOT_TOKEN
+)
 
-# Telegram channel where files will be forwarded
-CHANNEL_USERNAME = "engineerbabuxtfiles"  # Replace with your channel username
+photo = "https://i.postimg.cc/7LkVbrjm/yt.jpg"
+cpphoto = "https://i.postimg.cc/x81h56j7/cpdrm.webp"
+appxzip = "https://i.postimg.cc/Y0tt8SX3/appzip.webp"
+my_name = "𝕰𝖓𝖌𝖎𝖓𝖊𝖊𝖗𝖘 𝕭𝖆𝖇𝖚"
+CHANNEL_ID = "-1002257755789"
 
-# Initialize Pyrogram Client
-app = Client("my_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+cookies_file_path = os.getenv("COOKIES_FILE_PATH", "youtube_cookies.txt")
 
-# Dictionary to store user states and data
-user_data = {}
+# Define aiohttp routes
+routes = web.RouteTableDef()
 
-# Function to extract names and URLs from the text file
-def extract_names_and_urls(file_content):
-    lines = file_content.strip().split("\n")
-    data = []
-    for line in lines:
-        if ":" in line:
-            name, url = line.split(":", 1)
-            data.append((name.strip(), url.strip()))
-    return data
+@routes.get("/", allow_head=True)
+async def root_route_handler(request):
+    return web.json_response("https://text-leech-bot-for-render.onrender.com/")
 
-# Function to categorize URLs
-def categorize_urls(urls, token=None):
-    videos = []
-    pdfs = []
-    others = []
+async def web_server():
+    web_app = web.Application(client_max_size=30000000)
+    web_app.add_routes(routes)
+    return web_app
 
-    for name, url in urls:
-        new_url = url
-        if "media-cdn.classplusapp.com/drm/" in url or "cpvod.testbook" in url:
-            new_url = f"https://dragoapi.vercel.app/video/{url}"
-            videos.append((name, new_url))
-        elif "dragoapi.vercel" in url:
-            videos.append((name, url))
-        elif "d1d34p8vz63oiq" in url or "sec1.pw.live" or "/master.mpd"in url:
-            vid_id = url.split("/")[-2]
-            #if token:
-                #new_url = f"https://anonymouspwplayer-b99f57957198.herokuapp.com/pw?url={url}?token={token}"
-            #else:
-            new_url = f"https://player.muftukmall.site/?id={vid_id}"
-            videos.append((name, new_url))
-        elif 'amazonaws.com' in url:
-            if token:
-                new_url =  f"https://master-api-v3.vercel.app/adda-mp4-m3u8?url={url}&quality=480&token={token}"
-            videos.append((name, new_url))
-        if ".zip" in url:
-            url = f"https://video.pablocoder.eu.org/appx-zip?url={url}"
-            videos.append((name, new_url))
-        elif "youtube.com/embed" in url or "youtu.be" in url or "youtube.com/watch" in url:
-            videos.append((name, url))  # Keep YouTube URLs unchanged
-        elif (
-            ".m3u8" in url
-            or ".mp4" in url
-            or ".mkv" in url
-            or ".webm" in url
-            or ".MP4" in url
-            or ".AVI" in url
-            or ".MOV" in url
-            or ".WMV" in url
-            or ".MKV" in url
-            or ".FLV" in url
-            or ".MPEG" in url
-            or ".mpd" in url
-        ):
-            videos.append((name, url))
-        elif "pdf*" in url:
-            new_url = f"https://dragoapi.vercel.app/pdf/{url}"
-            pdfs.append((name, new_url))
-        elif "pdf" in url:
-            pdfs.append((name, url))
-        else:
-            others.append((name, url))
-
-    return videos, pdfs, others
-
-# Function to get MIME type based on file extension
-def get_mime_type(url):
-    if ".m3u8" in url:
-        return "application/x-mpegURL"
-    elif ".mp4" in url:
-        return "video/mp4"
-    elif ".mkv" in url:
-        return "video/x-matroska"
-    elif ".webm" in url:
-        return "video/webm"
-    elif ".avi" in url:
-        return "video/x-msvideo"
-    elif ".mov" in url:
-        return "video/quicktime"
-    elif ".wmv" in url:
-        return "video/x-ms-wmv"
-    elif ".flv" in url:
-        return "video/x-flv"
-    elif ".mpeg" in url:
-        return "video/mpeg"
-    elif ".mpd" in url:
-        return "application/dash+xml"
-    else:
-        return "video/mp4"  # Default to mp4 if format is unknown
-
-# Function to generate HTML file with Video.js player, YouTube player, and download feature
-def generate_html(file_name, videos, pdfs, others):
-    file_name_without_extension = os.path.splitext(file_name)[0]
-
-    video_links = "".join(f'<a href="#" onclick="playVideo(\'{url}\')">{name}</a>' for name, url in videos)
-    pdf_links = "".join(f'<a href="{url}" target="_blank">{name}</a> <a href="{url}" download>📥 Download PDF</a>' for name, url in pdfs)
-    other_links = "".join(f'<a href="{url}" target="_blank">{name}</a>' for name, url in others)
-
-    html_template = f"""
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{file_name_without_extension}</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
-    <link href="https://vjs.zencdn.net/8.10.0/video-js.css" rel="stylesheet" />
-    <style>
-        * {{ margin: 0; padding: 0; box-sizing: border-box; font-family: Arial, sans-serif; }}
-        body {{ background: #f5f7fa; text-align: center; }}
-        .header {{ background: linear-gradient(90deg, #007bff, #6610f2); color: white; padding: 15px; font-size: 24px; font-weight: bold; }}
-        .subheading {{ font-size: 18px; margin-top: 10px; color: #555; font-weight: bold; }}
-        .subheading a {{ background: linear-gradient(90deg, #ff416c, #ff4b2b); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-decoration: none; font-weight: bold; }}
-        .container {{ display: flex; justify-content: space-around; margin: 30px auto; width: 80%; }}
-        .tab {{ flex: 1; padding: 20px; background: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1); cursor: pointer; transition: 0.3s; border-radius: 10px; font-size: 20px; font-weight: bold; }}
-        .tab:hover {{ background: #007bff; color: white; }}
-        .content {{ display: none; margin-top: 20px; }}
-        .active {{ display: block; }}
-        .footer {{ margin-top: 30px; font-size: 18px; font-weight: bold; padding: 15px; background: #1c1c1c; color: white; border-radius: 10px; }}
-        .footer a {{ color: #ffeb3b; text-decoration: none; font-weight: bold; }}
-        .video-list, .pdf-list, .other-list {{ text-align: left; max-width: 600px; margin: auto; }}
-        .video-list a, .pdf-list a, .other-list a {{ display: block; padding: 10px; background: #fff; margin: 5px 0; border-radius: 5px; text-decoration: none; color: #007bff; font-weight: bold; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); }}
-        .video-list a:hover, .pdf-list a:hover, .other-list a:hover {{ background: #007bff; color: white; }}
-        .search-bar {{ margin: 20px auto; width: 80%; max-width: 600px; }}
-        .search-bar input {{ width: 100%; padding: 10px; border: 2px solid #007bff; border-radius: 5px; font-size: 16px; }}
-        .no-results {{ color: red; font-weight: bold; margin-top: 20px; display: none; }}
-        #video-player {{ display: none; margin: 20px auto; width: 80%; max-width: 800px; }}
-        #youtube-player {{ display: none; margin: 20px auto; width: 80%; max-width: 800px; }}
-        .download-button {{ margin-top: 10px; text-align: center; }}
-        .download-button a {{ background: #007bff; color: white; padding: 10px 20px; border-radius: 5px; text-decoration: none; font-weight: bold; }}
-        .download-button a:hover {{ background: #0056b3; }}
-        .datetime {{ margin-top: 10px; font-size: 18px; font-weight: bold; color: #2F4F4F; }}
-    </style>
-</head>
-<body>
-    <div class="header">{file_name_without_extension}</div>
-    <div class="subheading">📥 𝐄𝐱𝐭𝐫𝐚𝐜𝐭𝐞𝐝 𝐁𝐲 : <a href="https://t.me/Engineers_Babu" target="_blank">𝕰𝖓𝖌𝖎𝖓𝖊𝖊𝖗𝖘 𝕭𝖆𝖇𝖚™</a></div><br>
-    <div class="datetime" id="datetime">📅 {datetime.now().strftime('%A %d %B, %Y | ⏰ %I:%M:%S %p')}</div><br>
-    <p>🔹𝐔𝐬𝐞 𝐓𝐡𝐢𝐬 𝐁𝐨𝐭 𝐟𝐨𝐫 𝐓𝐗𝐓 𝐭𝐨 𝐇𝐓𝐌𝐋 𝐟𝐢𝐥𝐞 𝐄𝐱𝐭𝐫𝐚𝐜𝐭𝐢𝐨𝐧 : <a href="https://t.me/htmldeveloperbot" target="_blank"> @𝐡𝐭𝐦𝐥𝐝𝐞𝐯𝐞𝐥𝐨𝐩𝐞𝐫𝐛𝐨𝐭 </a></p>
-
-    <div class="search-bar">
-        <input type="text" id="searchInput" placeholder="Search for videos, PDFs, or other resources..." oninput="filterContent()">
-    </div>
-
-    <div id="noResults" class="no-results">No results found.</div>
-
-    <div id="video-player">
-        <video id="engineer-babu-player" class="video-js vjs-default-skin" controls preload="auto" width="640" height="360">
-            <p class="vjs-no-js">
-                To view this video please enable JavaScript, and consider upgrading to a web browser that
-                <a href="https://videojs.com/html5-video-support/" target="_blank">supports HTML5 video</a>
-            </p>
-        </video>
-        <div class="download-button">
-            <a id="download-link" href="#" download>Download Video</a>
-        </div>
-        <div style="text-align: center; margin-top: 10px; font-weight: bold; color: #007bff;">Engineer Babu Player</div>
-    </div>
-
-    <div id="youtube-player">
-        <div id="player"></div>
-        <div style="text-align: center; margin-top: 10px; font-weight: bold; color: #007bff;">Engineer Babu Player</div>
-    </div>
-
-    <div class="container">
-        <div class="tab" onclick="showContent('videos')">Videos</div>
-        <div class="tab" onclick="showContent('pdfs')">PDFs</div>
-        <div class="tab" onclick="showContent('others')">Others</div>
-    </div>
-
-    <div id="videos" class="content">
-        <h2>All Video Lectures</h2>
-        <div class="video-list">
-            {video_links}
-        </div>
-    </div>
-
-    <div id="pdfs" class="content">
-        <h2>All PDFs</h2>
-        <div class="pdf-list">
-            {pdf_links}
-        </div>
-    </div>
-
-    <div id="others" class="content">
-        <h2>Other Resources</h2>
-        <div class="other-list">
-            {other_links}
-        </div>
-    </div>
-
-    <div class="footer">Extracted By - <a href="https://t.me/Engineers_Babu" target="_blank">Engineer Babu</a></div>
-
-    <script src="https://vjs.zencdn.net/8.10.0/video.min.js"></script>
-    <script src="https://www.youtube.com/iframe_api"></script>
-    <script>
-        const player = videojs('engineer-babu-player', {{
-            controls: true,
-            autoplay: false,
-            preload: 'auto',
-            fluid: true,
-        }});
-
-        let youtubePlayer;
-
-        function onYouTubeIframeAPIReady() {{
-            youtubePlayer = new YT.Player('player', {{
-                height: '360',
-                width: '640',
-                events: {{
-                    'onReady': onPlayerReady,
-                }}
-            }});
-        }}
-
-        function onPlayerReady(event) {{
-            // You can add additional functionality here if needed
-        }}
-
-        function playVideo(url) {{
-            if (
-                url.includes('.m3u8') ||
-                url.includes('.mp4') ||
-                url.includes('.mkv') ||
-                url.includes('.webm') ||
-                url.includes('.MP4') ||
-                url.includes('.AVI') ||
-                url.includes('.MOV') ||
-                url.includes('.WMV') ||
-                url.includes('.MKV') ||
-                url.includes('.FLV') ||
-                url.includes('.MPEG') ||
-                url.includes('.mpd')
-            ) {{
-                document.getElementById('video-player').style.display = 'block';
-                document.getElementById('youtube-player').style.display = 'none';
-                const mimeType = getMimeType(url);
-                player.src({{ src: url, type: mimeType }});
-                player.play().catch(() => {{
-                    window.open(url, '_blank');
-                }});
-                document.getElementById('download-link').href = url;
-            }} else if (url.includes('youtube.com') || url.includes('youtu.be')) {{
-                document.getElementById('video-player').style.display = 'none';
-                document.getElementById('youtube-player').style.display = 'block';
-                youtubePlayer.loadVideoByUrl(url);  // Directly load the YouTube URL
-            }} else {{
-                window.open(url, '_blank');
-            }}
-        }}
-
-        function getMimeType(url) {{
-            if (url.includes('.m3u8')) {{
-                return 'application/x-mpegURL';
-            }} else if (url.includes('.mp4')) {{
-                return 'video/mp4';
-            }} else if (url.includes('.mkv')) {{
-                return 'video/x-matroska';
-            }} else if (url.includes('.webm')) {{
-                return 'video/webm';
-            }} else if (url.includes('.avi')) {{
-                return 'video/x-msvideo';
-            }} else if (url.includes('.mov')) {{
-                return 'video/quicktime';
-            }} else if (url.includes('.wmv')) {{
-                return 'video/x-ms-wmv';
-            }} else if (url.includes('.flv')) {{
-                return 'video/x-flv';
-            }} else if (url.includes('.mpeg')) {{
-                return 'video/mpeg';
-            }} else if (url.includes('.mpd')) {{
-                return 'application/dash+xml';
-            }} else {{
-                return 'video/mp4';  // Default to mp4 if format is unknown
-            }}
-        }}
-
-        function showContent(tabName) {{
-            const contents = document.querySelectorAll('.content');
-            contents.forEach(content => {{
-                content.style.display = 'none';
-            }});
-            const selectedContent = document.getElementById(tabName);
-            if (selectedContent) {{
-                selectedContent.style.display = 'block';
-            }}
-            filterContent();
-        }}
-
-        function filterContent() {{
-            const searchTerm = document.getElementById('searchInput').value.toLowerCase();
-            const categories = ['videos', 'pdfs', 'others'];
-            let hasResults = false;
-
-            categories.forEach(category => {{
-                const items = document.querySelectorAll(`#${{category}} .${{category}}-list a`);
-                let categoryHasResults = false;
-
-                items.forEach(item => {{
-                    const itemText = item.textContent.toLowerCase();
-                    if (itemText.includes(searchTerm)) {{
-                        item.style.display = 'block';
-                        categoryHasResults = true;
-                        hasResults = true;
-                    }} else {{
-                        item.style.display = 'none';
-                    }}
-                }});
-
-                const categoryHeading = document.querySelector(`#${{category}} h2`);
-                if (categoryHeading) {{
-                    categoryHeading.style.display = categoryHasResults ? 'block' : 'none';
-                }}
-            }});
-
-            const noResultsMessage = document.getElementById('noResults');
-            if (noResultsMessage) {{
-                noResultsMessage.style.display = hasResults ? 'none' : 'block';
-            }}
-        }}
-
-        function updateDateTime() {{
-            const now = new Date();
-            const options = {{ weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }};
-            const formattedDateTime = now.toLocaleDateString('en-US', options);
-            document.getElementById('datetime').innerText = `📅 ${{formattedDateTime}}`;
-        }}
-
-        document.addEventListener('DOMContentLoaded', () => {{
-            showContent('videos');
-            setInterval(updateDateTime, 1000);
-        }});
-    </script>
-</body>
-</html>
+async def add_watermark(input_video, output_video, watermark_text="ENGINEER'S BABU"):
     """
-    return html_template
+    Add watermark text to video using FFmpeg
+    Position: Bottom right with padding
+    Style: Semi-transparent white text with shadow
+    """
+    ffmpeg_cmd = [
+        'ffmpeg',
+        '-i', input_video,
+        '-vf', (
+            f"drawtext=text='{watermark_text}':"
+            "fontcolor=white@0.7:fontsize=24:"
+            "box=1:boxcolor=black@0.5:boxborderw=5:"
+            "x=w-text_w-20:y=h-text_h-20"  # Position at bottom right with 20px padding
+        ),
+        '-codec:a', 'copy',  # Keep original audio
+        '-y',  # Overwrite output file if exists
+        output_video
+    ]
+    
+    process = await asyncio.create_subprocess_exec(
+        *ffmpeg_cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE
+    )
+    
+    await process.communicate()
+    return output_video
 
-# Command handler for /start
-@app.on_message(filters.command("start"))
-async def start(client: Client, message: Message):
-    await message.reply_text("𝐖𝐞𝐥𝐜𝐨𝐦𝐞! 𝐏𝐥𝐞𝐚𝐬𝐞 𝐮𝐩𝐥𝐨𝐚𝐝 𝐚 .𝐭𝐱𝐭 𝐟𝐢𝐥𝐞 𝐜𝐨𝐧𝐭𝐚𝐢𝐧𝐢𝐧𝐠 𝐔𝐑𝐋𝐬.")
+async def start_bot():
+    await bot.start()
+    print("Bot is up and running")
 
-# Message handler for file uploads
-@app.on_message(filters.document)
-async def handle_file(client: Client, message: Message):
-    # Check if the file is a .txt file
-    if not message.document.file_name.endswith(".txt"):
-        await message.reply_text("Please upload a .txt file.")
+async def stop_bot():
+    await bot.stop()
+
+async def main():
+    if WEBHOOK:
+        app_runner = web.AppRunner(await web_server())
+        await app_runner.setup()
+        site = web.TCPSite(app_runner, "0.0.0.0", PORT)
+        await site.start()
+        print(f"Web server started on port {PORT}")
+
+    await start_bot()
+    try:
+        while True:
+            await asyncio.sleep(3600)
+    except (KeyboardInterrupt, SystemExit):
+        await stop_bot()
+        
+class Data:
+    START = (
+        "🌟 Welcome {0}! 🌟\n\n"
+    )
+
+@bot.on_message(filters.command("start"))
+async def start(client: Client, msg: Message):
+    user = await client.get_me()
+    mention = user.mention
+    start_message = await client.send_message(
+        msg.chat.id,
+        Data.START.format(msg.from_user.mention)
+    )
+
+    await asyncio.sleep(1)
+    await start_message.edit_text(
+        Data.START.format(msg.from_user.mention) +
+        "Initializing Uploader bot... 🤖\n\n"
+        "Progress: [⬜⬜⬜⬜⬜⬜⬜⬜⬜] 0%\n\n"
+    )
+
+    await asyncio.sleep(1)
+    await start_message.edit_text(
+        Data.START.format(msg.from_user.mention) +
+        "Loading features... ⏳\n\n"
+        "Progress: [🟥🟥🟥⬜⬜⬜⬜⬜⬜] 25%\n\n"
+    )
+    
+    await asyncio.sleep(1)
+    await start_message.edit_text(
+        Data.START.format(msg.from_user.mention) +
+        "This may take a moment, sit back and relax! 😊\n\n"
+        "Progress: [🟧🟧🟧🟧🟧⬜⬜⬜⬜] 50%\n\n"
+    )
+
+    await asyncio.sleep(1)
+    await start_message.edit_text(
+        Data.START.format(msg.from_user.mention) +
+        "Checking Bot Status... 🔍\n\n"
+        "Progress: [🟨🟨🟨🟨🟨🟨🟨⬜⬜] 75%\n\n"
+    )
+
+    await asyncio.sleep(1)
+    await start_message.edit_text(
+        Data.START.format(msg.from_user.mention) +
+        "Checking status Ok... Command Nhi Bataunga **Bot Made BY 𝕰𝖓𝖌𝖎𝖓𝖊𝖊𝖗𝖘 𝕭𝖆𝖇𝖚™👨🏻‍💻**🔍\n\n"
+        "Progress:[🟩🟩🟩🟩🟩🟩🟩🟩🟩] 100%\n\n"
+    )
+
+@bot.on_message(filters.command(["stop"]) )
+async def restart_handler(_, m):
+    await m.delete()
+    await m.reply_text("**STOPPED**🛑", True)
+    os.execl(sys.executable, sys.executable, *sys.argv)
+
+@bot.on_message(filters.command(["Engineer","upload"]) )
+async def txt_handler(bot: Client, m: Message):
+    await m.delete()
+    
+    editable = await m.reply_text(f"**🔹Hi I am Poweful TXT Downloader📥 Bot.**\n🔹**Send me the TXT file and wait.**")
+    input: Message = await bot.listen(editable.chat.id)
+    x = await input.download()
+    await input.delete(True)
+    file_name, ext = os.path.splitext(os.path.basename(x))
+    credit = f"𝕰𝖓𝖌𝖎𝖓𝖊𝖊𝖗𝖘 𝕭𝖆𝖇𝖚™"
+    token = f"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3MzYxNTE3MzAuMTI2LCJkYXRhIjp7Il9pZCI6IjYzMDRjMmY3Yzc5NjBlMDAxODAwNDQ4NyIsInVzZXJuYW1lIjoiNzc2MTAxNzc3MCIsImZpcnN0TmFtZSI6IkplZXYgbmFyYXlhbiIsImxhc3ROYW1lIjoic2FoIiwib3JnYW5pemF0aW9uIjp7Il9pZCI6IjVlYjM5M2VlOTVmYWI3NDY4YTc5ZDE4OSIsIndlYnNpdGUiOiJwaHlzaWNzd2FsbGFoLmNvbSIsIm5hbWUiOiJQaHlzaWNzd2FsbGFoIn0sImVtYWlsIjoiV1dXLkpFRVZOQVJBWUFOU0FIQEdNQUlMLkNPTSIsInJvbGVzIjpbIjViMjdiZDk2NTg0MmY5NTBhNzc4YzZlZiJdLCJjb3VudHJ5R3JvdXAiOiJJTiIsInR5cGUiOiJVU0VSIn0sImlhdCI6MTczNTU0NjkzMH0.iImf90mFu_cI-xINBv4t0jVz-rWK1zeXOIwIFvkrS0M"
+    try:    
+        with open(x, "r") as f:
+            content = f.read()
+        content = content.split("\n")
+        links = []
+        for i in content:
+            links.append(i.split("://", 1))
+        os.remove(x)
+    except:
+        await m.reply_text("Invalid file input.")
+        os.remove(x)
         return
 
-    # Download the file
-    file_path = await message.download()
-    file_name = message.document.file_name
-
-    # Store file information in user_data
-    user_id = message.from_user.id
-    user_data[user_id] = {
-        "file_path": file_path,
-        "file_name": file_name,
-        "waiting_for_token": True
-    }
-
-    # Ask for token with inline keyboard
-    keyboard = InlineKeyboardMarkup(
-        [
-            [InlineKeyboardButton("No Token", callback_data="no_token")]
-        ]
-    )
-    await message.reply_text(
-        "🔑 Do you want to add a token for Adda/PW player? If yes, please send the token now. If no, click 'No Token' button.",
-        reply_markup=keyboard
-    )
-
-# Handler for token response
-@app.on_message(filters.text & ~filters.command("start"))
-async def handle_token_response(client: Client, message: Message):
-    user_id = message.from_user.id
-    if user_id in user_data and user_data[user_id].get("waiting_for_token"):
-        token = message.text.strip().lower()
-        
-        if token == "no":
-            token = None
-            await message.reply_text("Proceeding without token...")
-        else:
-            await message.reply_text(f"Token set to: {token}")
-        
-        # Process the file with the token
-        file_path = user_data[user_id]["file_path"]
-        file_name = user_data[user_id]["file_name"]
-        
-        # Read the file content
-        with open(file_path, "r") as f:
-            file_content = f.read()
-
-        # Extract names and URLs
-        urls = extract_names_and_urls(file_content)
-
-        # Categorize URLs with token
-        videos, pdfs, others = categorize_urls(urls, token)
-
-        # Generate HTML
-        html_content = generate_html(file_name, videos, pdfs, others)
-        html_file_path = file_path.replace(".txt", ".html")
-        with open(html_file_path, "w") as f:
-            f.write(html_content)
-
-        # Calculate totals
-        total_videos = len(videos)
-        total_pdfs = len(pdfs)
-        total_others = len(others)
-
-        # Get the user's username or fallback to their first name
-        user_identifier = message.from_user.username if message.from_user.username else message.from_user.first_name
-
-        # Send the HTML file to the user
-        await message.reply_document(
-            document=html_file_path,
-            caption=f"🎞️ 𝐕𝐢𝐝𝐞𝐨𝐬 : {total_videos}, 📚 𝐏𝐝𝐟𝐬 : {total_pdfs}, 💾 𝐎𝐭𝐡𝐞𝐫𝐬 : {total_others}\n\n✅ 𝐒𝐮𝐜𝐜𝐞𝐬𝐬𝐟𝐮𝐥𝐥𝐲 𝐃𝐨𝐧𝐞!\n\n📥 𝐄𝐱𝐭𝐫𝐚𝐜𝐭𝐞𝐝 𝐁𝐲 : 𝕰𝖓𝖌𝖎𝖓𝖊𝖊𝖗𝖘 𝕭𝖆𝖇𝖚™"
+    await editable.edit(f"Total links found are **{len(links)}**\n\nSend from where you want to download (initial is **1**).")
+    input0: Message = await bot.listen(editable.chat.id)
+    raw_text = input0.text
+    await input0.delete(True)
+    
+    try:
+        arg = int(raw_text)
+    except ValueError:
+        arg = 1
+    
+    if raw_text == "1":
+        file_name_without_ext = os.path.splitext(file_name)[0]
+        fancy_batch_name = f"𝐁𝐚𝐭𝐜𝐡 𝐍𝐚𝐦𝐞: 𝗤𝘂𝗮𝗹𝗶𝘁𝘆".replace("𝗤𝘂𝗮𝗹𝗶𝘁𝘆", file_name_without_ext)
+        name_message = await bot.send_message(
+            m.chat.id,
+            f"📌 **Batch Name Pinned!** 📌\n"
+            f"🎨 {fancy_batch_name}\n"
+            f"✨ Stay organized with your pinned batches 🚀!"
         )
-
-        # Forward the .txt file to the channel
-        await client.send_document(
-            chat_id=CHANNEL_USERNAME,
-            document=file_path,
-            caption=f"📥 User: @{user_identifier} "
-        )
-
-        # Clean up files
-        os.remove(file_path)
-        os.remove(html_file_path)
+        await bot.pin_chat_message(m.chat.id, name_message.id)
+        await asyncio.sleep(2)
         
-        # Remove user data
-        del user_data[user_id]
+    await editable.edit("**Enter Your Batch Name or send d for grabing from text filename.**")
+    input1: Message = await bot.listen(editable.chat.id)
+    raw_text0 = input1.text
+    await input1.delete(True)
+    if raw_text0 == 'd':
+        b_name = file_name
+    else:
+        b_name = raw_text0
 
-# Callback query handler for "No Token" button
-@app.on_callback_query(filters.regex("^no_token$"))
-async def no_token_callback(client: Client, callback_query):
-    user_id = callback_query.from_user.id
-    if user_id in user_data and user_data[user_id].get("waiting_for_token"):
-        await callback_query.answer("Processing without token...")
+    await editable.edit("**Enter resolution.\n Eg : 480 or 720**")
+    input2: Message = await bot.listen(editable.chat.id)
+    raw_text2 = input2.text
+    await input2.delete(True)
+    try:
+        if raw_text2 == "144":
+            res = "144x256"
+        elif raw_text2 == "240":
+            res = "240x426"
+        elif raw_text2 == "360":
+            res = "360x640"
+        elif raw_text2 == "480":
+            res = "480x854"
+        elif raw_text2 == "720":
+            res = "720x1280"
+        elif raw_text2 == "1080":
+            res = "1080x1920" 
+        else: 
+            res = "UN"
+    except Exception:
+            res = "UN"
+    
+    await editable.edit("**Enter Your Name or send 'de' for use default.\n Eg : 𝕰𝖓𝖌𝖎𝖓𝖊𝖊𝖗𝖘 𝕭𝖆𝖇𝖚™👨🏻‍💻**")
+    input3: Message = await bot.listen(editable.chat.id)
+    raw_text3 = input3.text
+    await input3.delete(True)
+    if raw_text3 == 'de':
+        CR = credit
+    else:
+        CR = raw_text3
         
-        # Process the file without token
-        file_path = user_data[user_id]["file_path"]
-        file_name = user_data[user_id]["file_name"]
+    await editable.edit("**Enter Your PW Token For 𝐌𝐏𝐃 𝐔𝐑𝐋  or send 'Not' for use default**")
+    input4: Message = await bot.listen(editable.chat.id)
+    raw_text4 = input4.text
+    await input4.delete(True)
+    if raw_text4 == 'not':
+        MR = token
+    else:
+        MR = raw_text4
         
-        # Read the file content
-        with open(file_path, "r") as f:
-            file_content = f.read()
+    await editable.edit("Now send the **Thumb url**\n**Eg :** ``\n\nor Send `no`")
+    input6 = message = await bot.listen(editable.chat.id)
+    raw_text6 = input6.text
+    await input6.delete(True)
+    await editable.delete()
 
-        # Extract names and URLs
-        urls = extract_names_and_urls(file_content)
+    thumb = input6.text
+    if thumb.startswith("http://") or thumb.startswith("https://"):
+        getstatusoutput(f"wget '{thumb}' -O 'thumb.jpg'")
+        thumb = "thumb.jpg"
+    else:
+        thumb == "no"
 
-        # Categorize URLs without token
-        videos, pdfs, others = categorize_urls(urls)
+    count = int(raw_text)    
+    try:
+        for i in range(arg-1, len(links)):
+            Vxy = links[i][1].replace("file/d/","uc?export=download&id=").replace("www.youtube-nocookie.com/embed", "youtu.be").replace("?modestbranding=1", "").replace("/view?usp=sharing","")
+            url = "https://" + Vxy
 
-        # Generate HTML
-        html_content = generate_html(file_name, videos, pdfs, others)
-        html_file_path = file_path.replace(".txt", ".html")
-        with open(html_file_path, "w") as f:
-            f.write(html_content)
+            if "visionias" in url:
+                async with ClientSession() as session:
+                    async with session.get(url, headers={'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9', 'Accept-Language': 'en-US,en;q=0.9', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'Pragma': 'no-cache', 'Referer': 'http://www.visionias.in/', 'Sec-Fetch-Dest': 'iframe', 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Site': 'cross-site', 'Upgrade-Insecure-Requests': '1', 'User-Agent': 'Mozilla/5.0 (Linux; Android 12; RMX2121) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Mobile Safari/537.36', 'sec-ch-ua': '"Chromium";v="107", "Not=A?Brand";v="24"', 'sec-ch-ua-mobile': '?1', 'sec-ch-ua-platform': '"Android"',}) as resp:
+                        text = await resp.text()
+                        url = re.search(r"(https://.*?playlist.m3u8.*?)\"", text).group(1)
 
-        # Calculate totals
-        total_videos = len(videos)
-        total_pdfs = len(pdfs)
-        total_others = len(others)
+            #elif 'media-cdn.classplusapp.com/drm/' in url:
+                #url = f"https://www.masterapi.tech/get/cp/dl?url={url}"
 
-        # Get the user's username or fallback to their first name
-        user_identifier = callback_query.from_user.username if callback_query.from_user.username else callback_query.from_user.first_name
+            elif 'media-cdn.classplusapp.com/drm/' in url:
+                url = f"https://dragoapi.vercel.app/video/{url}"
 
-        # Send the HTML file to the user
-        await callback_query.message.reply_document(
-            document=html_file_path,
-            caption=f"🎞️ 𝐕𝐢𝐝𝐞𝐨𝐬 : {total_videos}, 📚 𝐏𝐝𝐟𝐬 : {total_pdfs}, 💾 𝐎𝐭𝐡𝐞𝐫𝐬 : {total_others}\n\n✅ 𝐒𝐮𝐜𝐜𝐞𝐬𝐬𝐟𝐮𝐥𝐥𝐲 𝐃𝐨𝐧𝐞!\n\n📥 𝐄𝐱𝐭𝐫𝐚𝐜𝐭𝐞𝐝 𝐁𝐲 : 𝕰𝖓𝖌𝖎𝖓𝖊𝖊𝖗𝖘 𝕭𝖆𝖇𝖚™"
-        )
+            
+            elif 'videos.classplusapp' in url or "tencdn.classplusapp" in url or "webvideos.classplusapp.com" in url or "media-cdn-alisg.classplusapp.com" in url or "videos.classplusapp" in url or "videos.classplusapp.com" in url or "media-cdn-a.classplusapp" in url or "media-cdn.classplusapp" in url or "alisg-cdn-a.classplusapp" in url:
+             url = requests.get(f'https://api.classplusapp.com/cams/uploader/video/jw-signed-url?url={url}', headers={'x-access-token': 'eyJjb3Vyc2VJZCI6IjQ1NjY4NyIsInR1dG9ySWQiOm51bGwsIm9yZ0lkIjo0ODA2MTksImNhdGVnb3J5SWQiOm51bGx9r'}).json()['url']
 
-        # Forward the .txt file to the channel
-        await client.send_document(
-            chat_id=CHANNEL_USERNAME,
-            document=file_path,
-            caption=f"📥 User: @{user_identifier} "
-        )
+            elif "apps-s3-jw-prod.utkarshapp.com" in url:
+                if 'enc_plain_mp4' in url:
+                    url = url.replace(url.split("/")[-1], res+'.mp4')
+                    
+                elif 'Key-Pair-Id' in url:
+                    url = None
+                    
+                elif '.m3u8' in url:
+                    q = ((m3u8.loads(requests.get(url).text)).data['playlists'][1]['uri']).split("/")[0]
+                    x = url.split("/")[5]
+                    x = url.replace(x, "")
+                    url = ((m3u8.loads(requests.get(url).text)).data['playlists'][1]['uri']).replace(q+"/", x)
 
-        # Clean up files
-        os.remove(file_path)
-        os.remove(html_file_path)
-        
-        # Remove user data
-        del user_data[user_id]
+            elif '/master.mpd' in url:
+                url = f"https://anonymouspwplayer-b99f57957198.herokuapp.com/pw?url={url}?token={raw_text4}"
+                #vid_id =  url.split("/")[-2]
+             #url =  f"https://madxapi-d0cbf6ac738c.herokuapp.com/{vid_id}/master.m3u8?token={raw_text4}"
 
-# Run the bot
+            elif 'amazonaws.com' in url:
+                url =  f"https://master-api-v3.vercel.app/adda-mp4-m3u8?url={url}&quality={raw_text2}&token={raw_text4}"
+            
+            # [Previous URL processing code remains the same...]
+            
+            name1 = links[i][0].replace("\t", "").replace(":", "").replace("/", "").replace("+", "").replace("#", "").replace("|", "").replace("@", "").replace("*", "").replace(".", "").replace("https", "").replace("http", "").strip()
+            name = f'{str(count).zfill(3)}) {name1[:60]} {my_name}'
+
+            if "youtu" in url:
+                ytf = f"b[height<={raw_text2}][ext=mp4]/bv[height<={raw_text2}][ext=mp4]+ba[ext=m4a]/b[ext=mp4]"
+            else:
+                ytf = f"b[height<={raw_text2}]/bv[height<={raw_text2}]+ba/b/bv+ba"
+            if "jw-prod" in url:
+                cmd = f'yt-dlp -o "{name}.mp4" "{url}"'
+                
+            if "youtube.com" in url or "youtu.be" in url:
+                cmd = f'yt-dlp --cookies youtube_cookies.txt -f "{ytf}" "{url}" -o "{name}".mp4'
+            else:
+                cmd = f'yt-dlp -f "{ytf}" "{url}" -o "{name}.mp4"'
+
+            try:  
+                cc = f'**🎞️ VID_ID: {str(count).zfill(3)}.\n\n📝 Title: {name1} {my_name} {res}.mkv\n\n📚 Batch Name: {b_name}\n\n📥 Extracted By : {CR}\n\n**━━━━━✦{my_name}✦━━━━━**'
+                
+                if "drive" in url:
+                    try:
+                        ka = await helper.download(url, name)
+                        copy = await bot.send_document(chat_id=m.chat.id,document=ka, caption=cc)
+                        count+=1
+                        os.remove(ka)
+                        time.sleep(1)
+                    except FloodWait as e:
+                        await m.reply_text(str(e))
+                        time.sleep(e.x)
+                        continue
+                
+                elif ".pdf" in url:
+                    try:
+                        await asyncio.sleep(4)
+                        url = url.replace(" ", "%20")
+                        scraper = cloudscraper.create_scraper()
+                        response = scraper.get(url)
+                        if response.status_code == 200:
+                            with open(f'{name}.pdf', 'wb') as file:
+                                file.write(response.content)
+                            await asyncio.sleep(4)
+                            copy = await bot.send_document(chat_id=m.chat.id, document=f'{name}.pdf', caption=cc)
+                            count += 1
+                            os.remove(f'{name}.pdf')
+                        else:
+                            await m.reply_text(f"Failed to download PDF: {response.status_code} {response.reason}")
+                    except FloodWait as e:
+                        await m.reply_text(str(e))
+                        time.sleep(e.x)
+                        continue
+                
+                else:
+                    Show = f"📥 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝𝐢𝐧𝐠 »\n\n📝 Title:- `{name}\n\n**🔗 𝐓𝐨𝐭𝐚𝐥 𝐔𝐑𝐋 »** ✨{len(links)}✨\n\n⌨ 𝐐𝐮𝐚𝐥𝐢𝐭𝐲 » {raw_text2}`\n\n**𝐁𝐨𝐭 𝐌𝐚𝐝𝐞 𝐁𝐲 ✦ 𝕰𝖓𝖌𝖎𝖓𝖊𝖊𝖗𝖘 𝕭𝖆𝖇𝖚"
+                    prog = await m.reply_text(Show)
+                    res_file = await helper.download_video(url, cmd, name)
+                    
+                    # Add watermark to the downloaded video
+                    watermarked_file = f"watermarked_{name}.mp4"
+                    await add_watermark(res_file, watermarked_file)
+                    
+                    filename = watermarked_file
+                    await prog.delete(True)
+                    await helper.send_vid(bot, m, cc, filename, thumb, name, prog)
+                    
+                    # Clean up files
+                    if os.path.exists(res_file):
+                        os.remove(res_file)
+                    if os.path.exists(watermarked_file):
+                        os.remove(watermarked_file)
+                    
+                    count += 1
+                    time.sleep(1)
+
+            except Exception as e:
+                await m.reply_text(
+                    f"⌘ 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝𝐢𝐧𝐠 𝐈𝐧𝐭𝐞𝐫𝐮𝐩𝐭𝐞𝐝 ❌ \n\n⌘ 𝐍𝐚𝐦𝐞 » {name}\n⌘ 𝐋𝐢𝐧𝐤 » `{url}`\n⌘ 𝐄𝐫𝐫𝐨𝐫 » {str(e)}"
+                )
+                continue
+
+    except Exception as e:
+        await m.reply_text(f"Error: {str(e)}")
+    await m.reply_text("**✅ 𝐒𝐮𝐜𝐜𝐞𝐬𝐬𝐟𝐮𝐥𝐥𝐲 𝐃𝐨𝐧𝐞**")
+
 if __name__ == "__main__":
-    print("Bot is running...")
-    app.run()
+    asyncio.run(main())
