@@ -43,48 +43,29 @@ CHANNEL_ID = "-1002257755789"
 
 cookies_file_path = os.getenv("COOKIES_FILE_PATH", "youtube_cookies.txt")
 
-def sanitize_filename(filename):
-    """Convert to safe filename by removing special chars"""
-    return re.sub(r'[^\w\-_. ]', '', filename).strip()[:50]
-
-async def add_watermark(input_video, output_video, watermark_text="ENGINEER'S BABU"):
-    try:
-        if not os.path.exists(input_video):
-            raise FileNotFoundError(f"Input video not found: {input_video}")
-            
-        ffmpeg_cmd = [
-            'ffmpeg',
-            '-i', f'"{input_video}"',
-            '-vf', (
-                f"drawtext=text='{watermark_text}':"
-                "fontcolor=white@0.7:fontsize=24:"
-                "box=1:boxcolor=black@0.5:boxborderw=5:"
-                "x=w-text_w-20:y=h-text_h-20"
-            ),
-            '-codec:a', 'copy',
-            '-y',
-            f'"{output_video}"'
-        ]
-        
-        cmd = ' '.join(ffmpeg_cmd)
-        proc = await asyncio.create_subprocess_shell(
-            cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        
-        stdout, stderr = await proc.communicate()
-        
-        if proc.returncode != 0:
-            raise Exception(f"FFmpeg error: {stderr.decode()}")
-            
-        if not os.path.exists(output_video):
-            raise Exception("Watermarked file not created")
-            
-        return output_video
-        
-    except Exception as e:
-        raise Exception(f"Watermarking failed: {str(e)}")
+async def add_watermark(input_file, output_file):
+    """Add watermark to video using FFmpeg"""
+    watermark_text = "ENGINEER’S BABU"
+    ffmpeg_cmd = [
+        'ffmpeg',
+        '-i', input_file,
+        '-vf', (
+            f"drawtext=text='{watermark_text}':"
+            "fontcolor=white@0.7:fontsize=24:"  # 70% opacity white text
+            "box=1:boxcolor=black@0.5:boxborderw=5:"  # semi-transparent black background
+            "x=w-text_w-10:y=h-text_h-10"  # position 10px from bottom right
+        ),
+        '-codec:a', 'copy',  # keep original audio
+        '-y',  # overwrite output file if exists
+        output_file
+    ]
+    process = await asyncio.create_subprocess_exec(
+        *ffmpeg_cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE
+    )
+    await process.communicate()
+    return output_file
 
 # Define aiohttp routes
 routes = web.RouteTableDef()
@@ -695,45 +676,33 @@ async def txt_handler(bot: Client, m: Message):
                     Show = f"📥 Downloading »\n\n📝 Title:- `{name}`\n\n**🔗 Total URL »** ✨{len(links)}✨\n\n⌨ Quality » {raw_text2}`\n\n**Bot Made By ✦ 𝕰𝖓𝖌𝖎𝖓𝖊𝖊𝖗𝖘 𝕭𝖆𝖇𝖚"
                     prog = await m.reply_text(Show)
                     
+                    # In the main download loop, replace the direct upload with:
                     try:
-                        # Sanitize filename
-                        safe_name = re.sub(r'[^\w\-_. ]', '', name)[:50]  # Remove special chars and limit length
-                        original_file = f"{safe_name}.mp4"
-                        watermarked_file = f"wm_{safe_name}.mp4"
+                        Show = f"📥 Downloading »\n\n📝 Title:- `{name}`"
+                        prog = await m.reply_text(Show)
                         
-                        # Download video
-                        res_file = await helper.download_video(url, cmd, original_file)
+                        # First download the video
+                        temp_file = f"temp_{name}.mp4"
+                        res_file = await helper.download_video(url, cmd, temp_file)
                         
-                        if not os.path.exists(res_file):
-                            raise FileNotFoundError(f"Download failed - file not created: {res_file}")
-                            
                         # Add watermark
-                        await add_watermark(res_file, watermarked_file)
+                        watermarked_file = f"watermarked_{name}.mp4"
+                        await prog.edit_text("🖌 Adding watermark...")
+                        await add_watermark(temp_file, watermarked_file)
                         
-                        if not os.path.exists(watermarked_file):
-                            raise FileNotFoundError(f"Watermarking failed - file not created: {watermarked_file}")
-                            
-                        # Send video
-                        await prog.delete(True)
+                        # Upload watermarked version
+                        await prog.edit_text("📤 Uploading...")
                         await helper.send_vid(bot, m, cc, watermarked_file, thumb, name, prog)
                         
-                    except Exception as e:
-                        await m.reply_text(f"❌ Error processing video: {str(e)}")
-                        continue
-                    finally:
-                        # Cleanup files if they exist
-                        for file in [res_file, watermarked_file]:
-                            try:
-                                if file and os.path.exists(file):
-                                    os.remove(file)
-                            except:
-                                pass
-
-            except Exception as e:
-                await m.reply_text(
-                    f"⌘ 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝𝐢𝐧𝐠 𝐈𝐧𝐭𝐞𝐫𝐮𝐩𝐭𝐞𝐝 ❌ \n\n⌘ 𝐍𝐚𝐦𝐞 » {name}\n⌘ 𝐋𝐢𝐧𝐤 » `{url}`"
-                )
-                continue
+                        # Cleanup
+                        os.remove(temp_file)
+                        os.remove(watermarked_file)
+                        count += 1
+                except Exception as e:
+                    await m.reply_text(
+                        f"⌘ 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝𝐢𝐧𝐠 𝐈𝐧𝐭𝐞𝐫𝐮𝐩𝐭𝐞𝐝 ❌ \n\n⌘ 𝐍𝐚𝐦𝐞 » {name}\n⌘ 𝐋𝐢𝐧𝐤 » `{url}`"
+                    )
+                    continue
 
     except Exception as e:
         await m.reply_text(e)
