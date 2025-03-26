@@ -25,6 +25,33 @@ from pyrogram.errors import FloodWait
 from pyrogram.errors.exceptions.bad_request_400 import StickerEmojiInvalid
 from pyrogram.types.messages_and_media import message
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+import os
+import re
+import sys
+import json
+import time
+import asyncio
+import requests
+import subprocess
+import urllib.parse
+import yt_dlp
+import cloudscraper
+import m3u8
+import core as helper
+from utils import progress_bar
+from vars import API_ID, API_HASH, BOT_TOKEN
+from aiohttp import ClientSession
+from pyromod import listen
+from subprocess import getstatusoutput
+from pytube import YouTube
+from aiohttp import web
+import yt_dlp
+from pyrogram import Client, filters
+from pyrogram.types import Message
+from pyrogram.errors import FloodWait
+from pyrogram.errors.exceptions.bad_request_400 import StickerEmojiInvalid
+from pyrogram.types.messages_and_media import message
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 # Initialize the bot
 bot = Client(
@@ -33,6 +60,10 @@ bot = Client(
     api_hash=API_HASH,
     bot_token=BOT_TOKEN
 )
+# Replace with your API ID, API Hash, and Bot Token
+API_ID = "21705536"
+API_HASH = "c5bb241f6e3ecf33fe68a444e288de2d"
+BOT_TOKEN = "7480080731:AAHJ3jgh7npoAJSZ0tiB2n0bqSY0sp5E4gk"
 
 photo = "https://i.postimg.cc/7LkVbrjm/yt.jpg"
 cpphoto = "https://i.postimg.cc/x81h56j7/cpdrm.webp"
